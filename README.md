@@ -10,8 +10,8 @@ Installation:
 
 1.) Clone the Repository:
 ```bash
-git clone <repository_url>
-cd <repository_directory>
+git clone https://github.com/jayesh2810/Fashion-Designer-System
+cd path/to/your/directory
 ```
 
 2.) Install dependencies:
@@ -21,5 +21,5 @@ pip install -r requirements.txt
 
 3.) Run the App:
 ```bash
-streamlit run app.py
+streamlit run Final.py
 ```
