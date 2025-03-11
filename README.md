@@ -5,18 +5,18 @@ Wardrobe Specification Assistant is an AI-powered application designed to help y
 
 
 Installation
-Clone the Repository:
+1.) Clone the Repository:
 ```bash
 git clone <repository_url>
 cd <repository_directory>
 ```
 
-Create a Virtual Environment (Optional but Recommended):
+2.) Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-Run the App:
+3.) Run the App:
 ```bash
 streamlit run app.py
 ```
