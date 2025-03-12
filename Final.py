@@ -4,6 +4,7 @@ import base64
 import re
 import tempfile
 from dotenv import load_dotenv
+import requests
 
 # Load environment variables
 load_dotenv()
@@ -34,7 +35,7 @@ background_image = get_base64_of_file("banner.jpg")
 page_bg_img = f"""
 <style>
 [data-testid="stAppViewContainer"] {{
-    background-image: url("data:image/jpeg;base64,{background_image}");
+    # background-image: url("data:image/jpeg;base64,{background_image}");
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
@@ -90,6 +91,8 @@ def analyze_dressing_style(directory_path: str) -> list:
                         }
                     ],
                     max_tokens=50,
+                    temperature=0.5,  
+                    top_p=1.0,
                 )
                 results.append(response.choices[0].message.content)
         return results
@@ -124,17 +127,106 @@ def extract_price(description: str) -> str:
         return match.group(0)
     return None
 
-def search_with_duckduckgo(query: str, shopping_site: str, max_results: int = 5) -> list:
+def search_shopping_sites(query: str, shopping_site: str) -> list:
     """
-    Searches DuckDuckGo for the given query on the preferred shopping site and returns a list of results with corrected prices.
+    Searches the user's preferred shopping site using the Serper API and returns a list of results.
     """
+    # Add the `site:` operator to restrict results to the preferred shopping site
     query_with_site = f"{query} site:{shopping_site}.com"
-    results = DDGS().text(query_with_site, max_results=max_results, region="in")
-    for result in results:
-        actual_price = extract_price(result['body'])
-        if actual_price:
-            result['price'] = actual_price
-    return results
+
+    url = "https://google.serper.dev/shopping"
+    headers = {
+        "X-API-KEY": os.environ["SERPER_DEV_API_KEY"],
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "q": query_with_site,  # Use the modified query with the `site:` operator
+        "num": 5,  # Limit to 5 results per query
+        "location": "India",
+        "gl": "in"
+    }
+    response = requests.post(url, headers=headers, json=payload)
+    if response.status_code == 200:
+        return response.json().get("shoppingResults", [])
+    else:
+        return []
+
+
+import csv
+import hashlib
+
+USER_CSV = "users.csv"  # Change if you want a different file path
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def user_exists(username: str) -> bool:
+    if not os.path.exists(USER_CSV):
+        return False
+    with open(USER_CSV, mode='r', newline='', encoding='utf-8') as file:
+        reader = csv.reader(file)
+        for row in reader:
+            if row and row[0] == username:
+                return True
+    return False
+
+def check_credentials(username: str, password: str) -> bool:
+    if not os.path.exists(USER_CSV):
+        return False
+    hashed_pass = hash_password(password)
+    with open(USER_CSV, mode='r', newline='', encoding='utf-8') as file:
+        reader = csv.reader(file)
+        for row in reader:
+            # row[0] = username, row[1] = hashed password
+            if row and row[0] == username and row[1] == hashed_pass:
+                return True
+    return False
+
+def add_user(username: str, password: str):
+    hashed_pass = hash_password(password)
+    with open(USER_CSV, mode='a', newline='', encoding='utf-8') as file:
+        writer = csv.writer(file)
+        writer.writerow([username, hashed_pass])
+
+
+def login_signup_page():
+    st.title("User Authentication")
+
+    # Provide a radio button to choose between "Login" or "Sign Up"
+    choice = st.radio("Select Action", ["Login", "Sign Up"])
+    
+    if choice == "Login":
+        st.subheader("Log In")
+        username = st.text_input("Username", key="login_user")
+        password = st.text_input("Password", type="password", key="login_pass")
+        
+        if st.button("Log In"):
+            if user_exists(username):
+                if check_credentials(username, password):
+                    st.success("Logged in successfully!")
+                    st.session_state["logged_in"] = True
+                    st.session_state["username"] = username
+                else:
+                    st.error("Invalid username or password.")
+            else:
+                st.error("User does not exist. Please sign up first.")
+    
+    else:  # Sign Up
+        st.subheader("Sign Up")
+        username = st.text_input("New Username", key="signup_user")
+        password = st.text_input("New Password", type="password", key="signup_pass")
+        
+        if st.button("Sign Up"):
+            if user_exists(username):
+                st.error("That username already exists. Cannot sign up again.")
+            else:
+                add_user(username, password)
+                st.success("Sign-up successful! You can now log in.")
+
+    # If the user is logged in, show info
+    if st.session_state.get("logged_in"):
+        st.info(f"You are logged in as: {st.session_state['username']}")
+
 
 ##############################################
 # Define Tools and Agents
@@ -143,7 +235,7 @@ def search_with_duckduckgo(query: str, shopping_site: str, max_results: int = 5)
 # Create the search tool using DDGS
 search_tool = Tool(
     name="DuckDuckGo Search",
-    func=search_with_duckduckgo,
+    func=search_shopping_sites,
     description=(
         "Searches DuckDuckGo for items matching the query. "
         "Returns a list of results including titles, descriptions, and links."
@@ -258,7 +350,18 @@ wardrobe_crew = Crew(
 ##############################################
 
 # Create a sidebar selectbox for page navigation
-page = st.sidebar.selectbox("Select Page", ["Landing Page", "Upload Page"])
+page = st.sidebar.selectbox("Select Page", ["Login / Sign-Up", "Landing Page", "Upload Page"])
+
+if page == "Login / Sign-Up":
+    login_signup_page()
+
+elif page == "Upload Page":
+    # Check login status
+    if not st.session_state.get("logged_in"):
+        st.warning("Please log in first.")
+        st.stop()
+    # ... your existing Upload Page code ...
+
 
 if page == "Landing Page":
     st.title("Welcome to the Wardrobe Specification Assistant!")
@@ -276,7 +379,6 @@ if page == "Landing Page":
         
         Navigate to the **Upload Page** using the sidebar to get started!
     """)
-    # st.image("banner.jpg", use_column_width=True)
     
 elif page == "Upload Page":
     st.title("Wardrobe Specification Assistant")
@@ -316,7 +418,6 @@ elif page == "Upload Page":
             
             # --- Fashion Analyst Task ---
             st.write("Fashion Analyst is analyzing the uploaded images to identify your typical dressing style.")
-            # st.image("fashion_agent.jpg", use_column_width=True)
             with st.spinner("Analyzing dressing styles..."):
                 dressing_styles = analyze_dressing_style(image_path)
             st.subheader("Dressing Styles Identified:")
@@ -329,11 +430,9 @@ elif page == "Upload Page":
             
             # --- Wardrobe Specification Task ---
             st.write("Wardrobe Specification Agent is collecting your preferences and generating a detailed wardrobe plan based on your typical dressing style.")
-            # st.image("wardrobe_agent.jpg", use_column_width=True)
             
             # --- Shopping Agent Task ---
             st.write("Shopping Agent is searching major shopping sites for complete wardrobe sets within your budget.")
-            # st.image("shopping_agent.jpg", use_column_width=True)
             
             st.write("Combining your inputs and generating the complete wardrobe plan...")
             inputs = {
